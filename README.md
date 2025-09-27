@@ -185,16 +185,114 @@ curl "http://localhost:4000/api/v1/shodan/host/8.8.8.8"
 {
   "data": {
     "ip": "8.8.8.8",
-    "ports": [53, 443],
     "org": "Google LLC",
     "isp": "Google LLC",
-    "country": "United States",
-    "city": "Mountain View",
-    "last_update": "2023-10-15T08:00:00.000Z",
-    "tags": ["dns", "resolver"]
+    "hostnames": ["dns.google"],
+    "domains": ["google.com"],
+    "geo": {
+      "country": "United States",
+      "city": "Mountain View",
+      "lat": 37.4056,
+      "lon": -122.0775
+    },
+    "last_update": "2025-09-25T10:12:03Z",
+    "summary": {
+      "open_ports_count": 2,
+      "open_ports": [53, 443],
+      "top_service": "dns",
+      "web_stack": null,
+      "tls_summary": null,
+      "provider_hint": "Google",
+      "badges": ["dns"],
+      "risk_score": 12,
+      "exposure_flags": [],
+      "port_buckets": {
+        "web": [443],
+        "db": [],
+        "remote_access": [],
+        "mail": [],
+        "dns": [53],
+        "other": []
+      }
+    },
+    "services": [
+      {
+        "port": 53,
+        "transport": "udp",
+        "service": "dns",
+        "product": "Google Public DNS",
+        "version": null,
+        "cpe": [],
+        "fingerprints": null,
+        "http": null,
+        "ssl": null,
+        "raw_tags": []
+      },
+      {
+        "port": 443,
+        "transport": "tcp",
+        "service": "https",
+        "product": "Google Frontend",
+        "version": null,
+        "cpe": [],
+        "http": {
+          "server": "gws",
+          "title": "",
+          "status": 200,
+          "redirects": [],
+          "headers": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains"
+          }
+        },
+        "ssl": {
+          "cert": "...",
+          "cipher": "TLS_AES_256_GCM_SHA384",
+          "versions": ["TLSv1.3"]
+        },
+        "fingerprints": "abc123...",
+        "raw_tags": []
+      }
+    ],
+    "vulns": [
+      {
+        "cve": "CVE-2023-12345",
+        "cvss": 9.8,
+        "refs": ["https://nvd.nist.gov/..."]
+      }
+    ]
   }
 }
 ```
+
+**Campos de la respuesta:**
+
+- `ip`: Dirección IP del host
+- `org`: Organización propietaria
+- `isp`: Proveedor de servicios de internet
+- `asn`: Número de sistema autónomo
+- `hostnames`: Lista de nombres de host asociados
+- `domains`: Lista de dominios asociados
+- `geo`: Información geográfica (país, ciudad, coordenadas)
+- `last_update`: Última actualización en Shodan
+- `summary`: Resumen con información clave
+  - `open_ports_count`: Cantidad de puertos abiertos
+  - `open_ports`: Lista de puertos abiertos
+  - `top_service`: Servicio más común
+  - `web_stack`: Stack de tecnologías web detectado
+  - `tls_summary`: Resumen de servicios TLS/SSL
+  - `provider_hint`: Proveedor detectado
+  - `badges`: Etiquetas de categorías
+  - `risk_score`: Puntuación de riesgo (0-100)
+  - `exposure_flags`: Banderas de exposición
+  - `port_buckets`: Categorización de puertos
+    - `web`: Puertos web (80, 443, 8080, etc.)
+    - `db`: Puertos de bases de datos (3306, 5432, etc.)
+    - `remote_access`: Acceso remoto (22, 3389, etc.)
+    - `mail`: Servicios de correo (25, 110, etc.)
+    - `dns`: Servicios DNS (53)
+    - `other`: Otros puertos
+- `services`: Lista detallada de servicios por puerto
+- `vulns`: Vulnerabilidades detectadas (si las hay)
 
 ### Favoritos
 
@@ -414,26 +512,5 @@ POST /api/v1/favorites 201 12.456 ms - 567
 Para producción, asegúrate de:
 
 1. Configurar variables de entorno apropiadas
-2. Usar una base de datos PostgreSQL confiable (ej: Neon, AWS RDS)
+2. Usar una base de datos PostgreSQL (ej: Neon, AWS RDS)
 3. Configurar CORS más restrictivo si es necesario
-4. Considerar usar HTTPS
-5. Configurar logging más avanzado
-6. Implementar monitoreo
-
-## 📄 Licencia
-
-ISC
-
-## 🤝 Contribuciones
-
-Este es un proyecto base mínimo. Para mejoras:
-
-1. Fork el proyecto
-2. Crea una rama para tu feature
-3. Commit tus cambios
-4. Push a la rama
-5. Abre un Pull Request
-
----
-
-**Desarrollado para Echord** 🎯
