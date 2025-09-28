@@ -24,19 +24,44 @@ const searchHosts = async (req, res, next) => {
     const pageNum = Math.max(1, parseInt(page) || 1);
     const sizeNum = Math.min(100, Math.max(1, parseInt(size) || 10));
 
+    console.log(`🔍 [SHODAN SEARCH] Búsqueda iniciada:`);
+    console.log(`   Query: "${query}"`);
+    console.log(`   Página: ${pageNum}`);
+    console.log(`   Tamaño solicitado: ${sizeNum}`);
+
     // Buscar en Shodan
     const results = await shodanService.searchHosts(query, pageNum);
 
+    console.log(`📊 [SHODAN SEARCH] Resultados obtenidos:`);
+    console.log(`   Total en Shodan: ${results.total}`);
+    console.log(`   Resultados en esta página: ${results.matches.length}`);
+
+    // Limitar resultados al tamaño solicitado
+    const limitedMatches = results.matches.slice(0, sizeNum);
+
+    console.log(`✂️ [SHODAN SEARCH] Resultados limitados:`);
+    console.log(`   Tamaño solicitado: ${sizeNum}`);
+    console.log(`   Elementos después del corte: ${limitedMatches.length}`);
+
     // Crear respuesta paginada
     const response = createPaginatedResponse(
-      results.matches,
+      limitedMatches,
       results.total,
       pageNum,
       sizeNum
     );
 
+    console.log(`✅ [SHODAN SEARCH] Respuesta enviada:`);
+    console.log(`   Elementos devueltos: ${response.data.length}`);
+    console.log(`   Páginas totales: ${response.pagination.totalPages}`);
+    console.log(`   ----------------------------------------`);
+
     res.json(response);
   } catch (error) {
+    console.log(`❌ [SHODAN SEARCH] Error en búsqueda:`);
+    console.log(`   Query: "${req.query.q}"`);
+    console.log(`   Error: ${error.message}`);
+    console.log(`   ----------------------------------------`);
     next(error);
   }
 };

@@ -18,6 +18,10 @@ if (!SHODAN_API_KEY) {
  */
 const searchHosts = async (query, page = 1) => {
   try {
+    console.log(`🌐 [SHODAN API] Realizando petición a Shodan API...`);
+    console.log(`   URL: ${SHODAN_BASE_URL}/host/search`);
+    console.log(`   Parámetros: query="${query}", page=${page}`);
+
     const response = await axios.get(`${SHODAN_BASE_URL}/host/search`, {
       params: {
         key: SHODAN_API_KEY,
@@ -29,6 +33,11 @@ const searchHosts = async (query, page = 1) => {
 
     const { matches, total } = response.data;
 
+    console.log(`📡 [SHODAN API] Respuesta recibida:`);
+    console.log(`   Status: ${response.status}`);
+    console.log(`   Total disponible: ${total}`);
+    console.log(`   Matches recibidos: ${matches.length}`);
+
     // Transformar datos para devolver solo campos útiles
     const transformedMatches = matches.map((match) => ({
       ip_str: match.ip_str,
@@ -38,12 +47,24 @@ const searchHosts = async (query, page = 1) => {
       hostnames: match.hostnames || [],
     }));
 
+    console.log(`🔄 [SHODAN API] Datos transformados:`);
+    console.log(`   Elementos procesados: ${transformedMatches.length}`);
+
     return {
       matches: transformedMatches,
       total,
     };
   } catch (error) {
+    console.log(`💥 [SHODAN API] Error en petición:`);
+    console.log(`   Query: "${query}"`);
+    console.log(`   Página: ${page}`);
+
     if (error.response) {
+      console.log(`   Status HTTP: ${error.response.status}`);
+      console.log(
+        `   Error Shodan: ${error.response.data?.error || "Sin detalles"}`
+      );
+
       if (error.response.status === 401) {
         throw new Error(
           "API Key de Shodan inválida o expirada. Verifica tu SHODAN_API_KEY en el archivo .env"
@@ -60,8 +81,11 @@ const searchHosts = async (query, page = 1) => {
         }`
       );
     } else if (error.code === "ECONNABORTED") {
+      console.log(`   Tipo: Timeout (10s)`);
       throw new Error("Timeout en la solicitud a Shodan API");
     } else {
+      console.log(`   Tipo: Error de conexión`);
+      console.log(`   Detalle: ${error.message}`);
       throw new Error(`Error al conectar con Shodan API: ${error.message}`);
     }
   }

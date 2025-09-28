@@ -1,0 +1,563 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:phosphor_flutter/phosphor_flutter.dart';
+
+class HostDetailScreen extends StatefulWidget {
+  const HostDetailScreen({super.key});
+
+  @override
+  State<HostDetailScreen> createState() => _HostDetailScreenState();
+}
+
+class _HostDetailScreenState extends State<HostDetailScreen> {
+  // Ajusta esto si expones el backend en otro host/puerto
+  static const String _apiBase = 'http://localhost:4000/api/v1';
+
+  Map<String, dynamic>? _host;
+  bool _loading = true;
+  String? _error;
+  bool _showAllVulns = false;
+
+  String get _ip {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['ip'] is String) return args['ip'] as String;
+    return '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // initState no tiene context listo para ModalRoute,
+    // postFrame asegura que ya haya contexto disponible.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchHost();
+    });
+  }
+
+  Future<void> _fetchHost() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final res = await http.get(Uri.parse('$_apiBase/shodan/host/$_ip'));
+      if (res.statusCode != 200) {
+        throw Exception('HTTP ${res.statusCode}: ${res.body}');
+      }
+      final json = jsonDecode(res.body);
+      setState(() {
+        _host = json['data'] as Map<String, dynamic>?;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _addToFavorites() async {
+    if (_host == null) return;
+    try {
+      final body = {
+        'ip': _host!['ip'],
+        'alias':
+            (_host!['hostnames'] is List &&
+                (_host!['hostnames'] as List).isNotEmpty)
+            ? (_host!['hostnames'] as List).first.toString()
+            : _host!['ip'].toString(),
+        'notes': 'Añadido desde HostDetail',
+        'tags':
+            (_host!['summary']?['badges'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
+      };
+      final res = await http.post(
+        Uri.parse('$_apiBase/favorites'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Guardado en favoritos')));
+      } else {
+        throw Exception('HTTP ${res.statusCode}: ${res.body}');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
+    }
+  }
+
+  Color _riskColor(num? score) {
+    final s = (score ?? 0).toDouble();
+    if (s >= 80) return Colors.redAccent;
+    if (s >= 60) return Colors.deepOrange;
+    if (s >= 40) return Colors.orange;
+    if (s >= 20) return Colors.yellowAccent;
+    return Colors.greenAccent;
+  }
+
+  Widget _chip(String text, {IconData? icon, Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      margin: const EdgeInsets.only(right: 8, bottom: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: (color ?? Colors.greenAccent).withOpacity(0.7),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: PhosphorIcon(
+                icon,
+                size: 16,
+                color: color ?? Colors.greenAccent,
+              ),
+            ),
+          Text(
+            text,
+            style: TextStyle(color: color ?? Colors.greenAccent, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, {IconData? icon}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      child: Row(
+        children: [
+          if (icon != null)
+            PhosphorIcon(icon, color: Colors.greenAccent, size: 18),
+          if (icon != null) const SizedBox(width: 8),
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _card(Widget child) {
+    return Card(
+      color: Colors.grey[900],
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Padding(padding: const EdgeInsets.all(14), child: child),
+    );
+  }
+
+  Widget _header(Map<String, dynamic> h) {
+    final hostnames = (h['hostnames'] as List?)?.cast<String>() ?? const [];
+    final domains = (h['domains'] as List?)?.cast<String>() ?? const [];
+    final geo = (h['geo'] as Map?) ?? {};
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // IP + ISP/ORG
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const PhosphorIcon(
+                PhosphorIconsFill.desktopTower,
+                color: Colors.greenAccent,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Wrap(
+                  runSpacing: 6,
+                  children: [
+                    Text(
+                      h['ip']?.toString() ?? '',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    if (h['org'] != null)
+                      _chip(
+                        'ORG: ${h['org']}',
+                        icon: PhosphorIconsRegular.buildings,
+                      ),
+                    if (h['isp'] != null)
+                      _chip(
+                        'ISP: ${h['isp']}',
+                        icon: PhosphorIconsRegular.globe,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Hostnames / domains
+          if (hostnames.isNotEmpty || domains.isNotEmpty)
+            Wrap(
+              children: [
+                if (hostnames.isNotEmpty)
+                  _chip(
+                    'hostnames: ${hostnames.join(', ')}',
+                    icon: PhosphorIconsRegular.identificationCard,
+                  ),
+                if (domains.isNotEmpty)
+                  _chip(
+                    'domains: ${domains.join(', ')}',
+                    icon: PhosphorIconsRegular.at,
+                  ),
+              ],
+            ),
+          // Geo
+          if (geo.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              children: [
+                if (geo['country'] != null)
+                  _chip(
+                    geo['country'].toString(),
+                    icon: PhosphorIconsRegular.flag,
+                  ),
+                if (geo['city'] != null)
+                  _chip(
+                    geo['city'].toString(),
+                    icon: PhosphorIconsRegular.mapPin,
+                  ),
+                if (geo['lat'] != null && geo['lon'] != null)
+                  _chip(
+                    '(${geo['lat']}, ${geo['lon']})',
+                    icon: PhosphorIconsRegular.target,
+                  ),
+              ],
+            ),
+          ],
+          if (h['last_update'] != null) ...[
+            const SizedBox(height: 10),
+            _chip(
+              'last update: ${h['last_update']}',
+              icon: PhosphorIconsRegular.clock,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _summary(Map<String, dynamic> sum) {
+    final openPorts = (sum['open_ports'] as List?)?.cast<num>() ?? const [];
+    final badges = (sum['badges'] as List?)?.cast<String>() ?? const [];
+    final exposure =
+        (sum['exposure_flags'] as List?)?.cast<String>() ?? const [];
+    final provider = sum['provider_hint']?.toString();
+    final risk = sum['risk_score'] as num?;
+    final webStack = sum['web_stack']?.toString();
+    final tls = sum['tls_summary']?.toString();
+    final portBuckets = (sum['port_buckets'] as Map?) ?? {};
+
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            children: [
+              _chip(
+                'risk: ${risk ?? 0}',
+                icon: PhosphorIconsRegular.warning,
+                color: _riskColor(risk),
+              ),
+              _chip(
+                'open: ${openPorts.length}',
+                icon: PhosphorIconsRegular.plug,
+              ),
+              if (provider != null && provider.isNotEmpty)
+                _chip(provider, icon: PhosphorIconsRegular.cloud),
+              if (webStack != null && webStack.isNotEmpty)
+                _chip(webStack, icon: PhosphorIconsRegular.browser),
+              if (tls != null && tls.isNotEmpty)
+                _chip('tls', icon: PhosphorIconsRegular.lock),
+            ],
+          ),
+          if (badges.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(children: badges.map((b) => _chip(b)).toList()),
+          ],
+          if (exposure.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              children: exposure
+                  .map(
+                    (e) => _chip(
+                      e,
+                      icon: PhosphorIconsRegular.shieldWarning,
+                      color: Colors.orange,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          if (portBuckets.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Port Buckets:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              children: portBuckets.entries.map((e) {
+                final name = e.key;
+                final values = (e.value as List?)?.cast<num>() ?? const [];
+                return _chip(
+                  '$name: ${values.join(", ")}',
+                  icon: PhosphorIconsRegular.hash,
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _services(List services) {
+    if (services.isEmpty) {
+      return _card(const Text('Sin servicios detectados.'));
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: services.length,
+      itemBuilder: (context, i) {
+        final s = services[i] as Map<String, dynamic>;
+        final port = s['port'];
+        final transport = s['transport'];
+        final service = s['service']?.toString();
+        final product = s['product']?.toString();
+        final version = s['version']?.toString();
+        final cpe = (s['cpe'] as List?)?.cast<String>() ?? const [];
+        final httpInfo = s['http'] as Map?;
+        final sslInfo = s['ssl'] as Map?;
+
+        return _card(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  PhosphorIcon(
+                    (service?.toLowerCase().contains('http') ?? false)
+                        ? PhosphorIconsFill.globe
+                        : PhosphorIconsFill.plug,
+                    color: Colors.greenAccent,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '$service  •  $product ${version ?? ""}'.trim(),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  _chip('$port/$transport', icon: PhosphorIconsRegular.plug),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (cpe.isNotEmpty)
+                Wrap(
+                  children: cpe
+                      .map((e) => _chip(e, icon: PhosphorIconsRegular.code))
+                      .toList(),
+                ),
+              if (httpInfo != null) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'HTTP',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                if (httpInfo['server'] != null)
+                  _chip(
+                    'server: ${httpInfo['server']}',
+                    icon: PhosphorIconsRegular.browser,
+                  ),
+                if (httpInfo['title'] != null &&
+                    (httpInfo['title'] as String).isNotEmpty)
+                  _chip(
+                    'title: ${httpInfo['title']}',
+                    icon: PhosphorIconsRegular.textT,
+                  ),
+                if (httpInfo['status'] != null)
+                  _chip(
+                    'status: ${httpInfo['status']}',
+                    icon: PhosphorIconsRegular.numberSquareNine,
+                  ), // solo un iconito
+              ],
+              if (sslInfo != null) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'TLS',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                finalCert(sslInfo),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget finalCert(Map sslInfo) {
+    final versions = (sslInfo['versions'] as List?)?.cast<String>() ?? const [];
+    final alpn = (sslInfo['alpn'] as List?)?.cast<String>() ?? const [];
+    final cert = (sslInfo['cert'] as Map?) ?? {};
+    final issuer = (cert['issuer'] as Map?) ?? {};
+    final subject = (cert['subject'] as Map?) ?? {};
+    return Wrap(
+      children: [
+        if (versions.isNotEmpty)
+          _chip(
+            'vers: ${versions.join(", ")}',
+            icon: PhosphorIconsRegular.lock,
+          ),
+        if (alpn.isNotEmpty)
+          _chip(
+            'alpn: ${alpn.join(", ")}',
+            icon: PhosphorIconsRegular.arrowsLeftRight,
+          ),
+        if (issuer['CN'] != null)
+          _chip(
+            'issuer: ${issuer['CN']}',
+            icon: PhosphorIconsRegular.certificate,
+          ),
+        if (subject['CN'] != null)
+          _chip('cn: ${subject['CN']}', icon: PhosphorIconsRegular.userCircle),
+        if (cert['valid_from'] != null)
+          _chip(
+            'from: ${cert['valid_from']}',
+            icon: PhosphorIconsRegular.calendar,
+          ),
+        if (cert['valid_to'] != null)
+          _chip(
+            'to: ${cert['valid_to']}',
+            icon: PhosphorIconsRegular.calendarBlank,
+          ),
+      ],
+    );
+  }
+
+  Widget _vulns(List vulns) {
+    if (vulns.isEmpty) {
+      return _card(const Text('Sin vulnerabilidades reportadas por Shodan.'));
+    }
+    final list = vulns.map((e) => e.toString()).toList();
+    final show = _showAllVulns ? list : list.take(12).toList();
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            children: show
+                .map((cve) => _chip(cve, icon: PhosphorIconsRegular.bug))
+                .toList(),
+          ),
+          if (list.length > 12)
+            TextButton(
+              onPressed: () => setState(() => _showAllVulns = !_showAllVulns),
+              child: Text(
+                _showAllVulns ? 'Ver menos' : 'Ver más (${list.length - 12})',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canShow = _ip.isNotEmpty;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(canShow ? 'Host: $_ip' : 'Host Detail'),
+        actions: [
+          IconButton(
+            tooltip: 'Refrescar',
+            onPressed: _fetchHost,
+            icon: const PhosphorIcon(PhosphorIconsRegular.arrowClockwise),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addToFavorites,
+        tooltip: 'Agregar a favoritos',
+        child: const PhosphorIcon(PhosphorIconsFill.star),
+      ),
+      body: _loading
+          ? const LinearProgressIndicator()
+          : _error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  'Error: $_error',
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            )
+          : !_hostReady()
+          ? const Center(child: Text('Sin datos'))
+          : _buildBody(),
+    );
+  }
+
+  bool _hostReady() => _host != null && _host!['ip'] != null;
+
+  Widget _buildBody() {
+    final h = _host!;
+
+    // ✅ Forzar tipos
+    final Map<String, dynamic> summary = Map<String, dynamic>.from(
+      (h['summary'] as Map?) ?? {},
+    );
+
+    final List<Map<String, dynamic>> services = ((h['services'] as List?) ?? [])
+        .whereType<Map>() // por si acaso
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final List<String> vulns = ((h['vulns'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        _sectionTitle('Overview', icon: PhosphorIconsRegular.info),
+        _header(Map<String, dynamic>.from(h)), // opcionalmente tipa h también
+
+        _sectionTitle('Summary', icon: PhosphorIconsRegular.listChecks),
+        _summary(summary), // 👈 ya es Map<String, dynamic>
+
+        _sectionTitle('Services', icon: PhosphorIconsRegular.plug),
+        _services(services), // 👈 ahora es List<Map<String, dynamic>>
+
+        _sectionTitle('Vulnerabilities', icon: PhosphorIconsRegular.bug),
+        _vulns(vulns), // 👈 List<String>
+      ],
+    );
+  }
+}
