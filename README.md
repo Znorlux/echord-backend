@@ -14,6 +14,7 @@ Backend mínimo y funcional para la aplicación Echord (frontend en Flutter). Pr
 - **Validación** - Validación manual de entrada
 - **Paginación** - Respuestas paginadas
 - **Manejo de errores** - Middleware centralizado
+- **Sistema de caché** - Caché inteligente para optimizar uso de API Key
 
 ## 📁 Estructura del Proyecto
 
@@ -294,6 +295,84 @@ curl "http://localhost:4000/api/v1/shodan/host/8.8.8.8"
 - `services`: Lista detallada de servicios por puerto
 - `vulns`: Vulnerabilidades detectadas (si las hay)
 
+### Gestión de Caché
+
+#### Estadísticas del Caché
+
+```http
+GET /api/v1/cache/stats
+```
+
+**Respuesta:**
+
+```json
+{
+  "status": "success",
+  "data": {
+    "searches": {
+      "total": 25,
+      "expired": 3,
+      "active": 22
+    },
+    "hosts": {
+      "total": 15,
+      "expired": 1,
+      "active": 14
+    }
+  },
+  "cache_config": {
+    "search_expiry_hours": 6,
+    "host_expiry_hours": 24
+  }
+}
+```
+
+#### Limpiar Caché Expirado
+
+```http
+POST /api/v1/cache/clean
+```
+
+**Respuesta:**
+
+```json
+{
+  "status": "success",
+  "message": "Caché limpiado exitosamente",
+  "data": {
+    "searches": {
+      "total": 22,
+      "expired": 0,
+      "active": 22
+    },
+    "hosts": {
+      "total": 14,
+      "expired": 0,
+      "active": 14
+    }
+  }
+}
+```
+
+#### Vaciar Todo el Caché
+
+```http
+DELETE /api/v1/cache/clear
+```
+
+**Respuesta:**
+
+```json
+{
+  "status": "success",
+  "message": "Todo el caché ha sido vaciado",
+  "data": {
+    "searches_deleted": 22,
+    "hosts_deleted": 14
+  }
+}
+```
+
 ### Favoritos
 
 #### Listar Favoritos
@@ -487,6 +566,60 @@ model Favorite {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+```
+
+### Modelos de Caché
+
+```prisma
+model ShodanSearchCache {
+  id          String   @id @default(uuid())
+  query       String   // Query de búsqueda original
+  page        Int      // Página solicitada
+  results     Json     // Resultados JSON de Shodan
+  total       Int      // Total de resultados disponibles
+  expiresAt   DateTime // Cuándo expira este caché
+  createdAt   DateTime @default(now())
+
+  @@unique([query, page])
+}
+
+model ShodanHostCache {
+  id        String   @id @default(uuid())
+  ip        String   @unique // IP del host
+  data      Json     // Información completa del host
+  expiresAt DateTime // Cuándo expira este caché
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+## 🚀 Sistema de Caché
+
+### ¿Por qué usar caché?
+
+- **Ahorro de API Key**: Evita peticiones repetidas a Shodan
+- **Mejor rendimiento**: Respuestas instantáneas para datos ya consultados
+- **Experiencia mejorada**: Sin esperas para consultas recientes
+
+### Configuración del caché:
+
+- **Búsquedas** (`/search`): Expiran en **6 horas**
+- **Hosts** (`/host/:ip`): Expiran en **24 horas**
+
+### Flujo de funcionamiento:
+
+1. **Primera consulta**: Se consulta Shodan API y se guarda en caché
+2. **Consultas posteriores**: Se sirve desde caché (mucho más rápido)
+3. **Expiración**: Después del tiempo configurado, se vuelve a consultar Shodan
+
+### Logs de caché en consola:
+
+```bash
+🔍 [CACHE] Buscando en caché: query="apache", page=1
+✅ [CACHE] Encontrado en caché - creado: 2025-09-28T10:15:00.000Z
+🎯 [SHODAN] Usando resultados desde caché
+   Query: "apache", Página: 1
+   Resultados: 100, Total: 15847392
 ```
 
 ## 🐛 Desarrollo y Debug

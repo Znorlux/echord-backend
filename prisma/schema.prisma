@@ -19,3 +19,29 @@ model Favorite {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Caché para búsquedas masivas de Shodan
+model ShodanSearchCache {
+  id          String   @id @default(uuid())
+  query       String   // Query de búsqueda original
+  page        Int      // Página solicitada
+  results     Json     // Resultados JSON de Shodan
+  total       Int      // Total de resultados disponibles
+  expiresAt   DateTime // Cuándo expira este caché
+  createdAt   DateTime @default(now())
+  
+  @@unique([query, page]) // Una búsqueda por query+página
+  @@index([query, expiresAt]) // Índice para búsquedas rápidas
+}
+
+// Caché para información detallada de hosts
+model ShodanHostCache {
+  id        String   @id @default(uuid())
+  ip        String   @unique // IP del host
+  data      Json     // Información completa del host
+  expiresAt DateTime // Cuándo expira este caché
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([ip, expiresAt]) // Índice para búsquedas rápidas
+}

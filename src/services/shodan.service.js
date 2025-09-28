@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { SHODAN_API_KEY } = require("../config/env");
+const cacheService = require("./cache.service");
 
 const SHODAN_BASE_URL = "https://api.shodan.io/shodan";
 
@@ -11,13 +12,25 @@ if (!SHODAN_API_KEY) {
 }
 
 /**
- * Busca hosts en Shodan
+ * Busca hosts en Shodan (con caché)
  * @param {string} query - Query de búsqueda
  * @param {number} page - Página (1-based)
  * @returns {Promise<object>} - Resultados de búsqueda
  */
 const searchHosts = async (query, page = 1) => {
   try {
+    // 1. Intentar obtener del caché primero
+    const cachedResults = await cacheService.getCachedSearch(query, page);
+    if (cachedResults) {
+      console.log(`🎯 [SHODAN] Usando resultados desde caché`);
+      console.log(`   Query: "${query}", Página: ${page}`);
+      console.log(
+        `   Resultados: ${cachedResults.matches.length}, Total: ${cachedResults.total}`
+      );
+      return cachedResults;
+    }
+
+    // 2. Si no está en caché, hacer petición a Shodan API
     console.log(`🌐 [SHODAN API] Realizando petición a Shodan API...`);
     console.log(`   URL: ${SHODAN_BASE_URL}/host/search`);
     console.log(`   Parámetros: query="${query}", page=${page}`);
@@ -38,7 +51,7 @@ const searchHosts = async (query, page = 1) => {
     console.log(`   Total disponible: ${total}`);
     console.log(`   Matches recibidos: ${matches.length}`);
 
-    // Transformar datos para devolver solo campos útiles
+    // 3. Transformar datos para devolver solo campos útiles
     const transformedMatches = matches.map((match) => ({
       ip_str: match.ip_str,
       port: match.port,
@@ -49,6 +62,9 @@ const searchHosts = async (query, page = 1) => {
 
     console.log(`🔄 [SHODAN API] Datos transformados:`);
     console.log(`   Elementos procesados: ${transformedMatches.length}`);
+
+    // 4. Guardar en caché para futuras consultas
+    await cacheService.cacheSearch(query, page, transformedMatches, total);
 
     return {
       matches: transformedMatches,
@@ -121,12 +137,27 @@ const categorizePort = (port) => {
 };
 
 /**
- * Obtiene información detallada de un host
+ * Obtiene información detallada de un host (con caché)
  * @param {string} ip - Dirección IP del host
  * @returns {Promise<object>} - Información del host
  */
 const getHostInfo = async (ip) => {
   try {
+    // 1. Intentar obtener del caché primero
+    const cachedHost = await cacheService.getCachedHost(ip);
+    if (cachedHost) {
+      console.log(`🎯 [SHODAN] Usando información de host desde caché`);
+      console.log(`   IP: ${ip}`);
+      console.log(
+        `   Puertos: ${cachedHost.summary?.open_ports_count || "N/A"}`
+      );
+      return cachedHost;
+    }
+
+    // 2. Si no está en caché, hacer petición a Shodan API
+    console.log(`🌐 [SHODAN API] Obteniendo información de host desde API...`);
+    console.log(`   URL: ${SHODAN_BASE_URL}/host/${ip}`);
+
     const response = await axios.get(`${SHODAN_BASE_URL}/host/${ip}`, {
       params: {
         key: SHODAN_API_KEY,
@@ -135,6 +166,15 @@ const getHostInfo = async (ip) => {
     });
 
     const data = response.data;
+
+    console.log(`📡 [SHODAN API] Información de host recibida:`);
+    console.log(`   Status: ${response.status}`);
+    console.log(`   IP: ${data.ip_str}`);
+    console.log(
+      `   Servicios encontrados: ${data.data ? data.data.length : 0}`
+    );
+
+    // 3. Procesar los datos como antes...
 
     // Extraer puertos de todos los servicios
     const services = data.data || [];
@@ -262,7 +302,8 @@ const getHostInfo = async (ip) => {
     if (portBuckets.db.length > 0) badges.push("database");
     if (portBuckets.mail.length > 0) badges.push("mail");
 
-    return {
+    // 4. Crear objeto con toda la información procesada
+    const hostInfo = {
       ip: data.ip_str,
       org: data.org || "No disponible",
       isp: data.isp || "No disponible",
@@ -290,6 +331,16 @@ const getHostInfo = async (ip) => {
       services: processedServices,
       vulns: data.vulns || [], // Shodan puede incluir vulnerabilidades
     };
+
+    console.log(`🔄 [SHODAN API] Información de host procesada:`);
+    console.log(`   Puertos encontrados: ${uniquePorts.length}`);
+    console.log(`   Risk score: ${riskScore}`);
+    console.log(`   Provider: ${providerHint || "No detectado"}`);
+
+    // 5. Guardar en caché para futuras consultas
+    await cacheService.cacheHost(ip, hostInfo);
+
+    return hostInfo;
   } catch (error) {
     if (error.response) {
       if (error.response.status === 404) {
