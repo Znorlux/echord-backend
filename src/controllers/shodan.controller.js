@@ -1,6 +1,7 @@
 const shodanService = require("../services/shodan.service");
 const {
   isValidIPOrHostname,
+  isDomain,
   isNotEmpty,
   createValidationError,
 } = require("../utils/validate");
@@ -80,13 +81,29 @@ const getHostInfo = async (req, res, next) => {
       );
     }
 
-    // Obtener información del host
+    console.log(`🔍 [HOST INFO] Solicitud recibida:`);
+    console.log(`   Target: ${ip}`);
+    console.log(`   Tipo: ${isDomain(ip) ? "Dominio" : "IP"}`);
+
+    // Obtener información del host (resuelve DNS automáticamente si es dominio)
     const hostInfo = await shodanService.getHostInfo(ip);
+
+    console.log(`✅ [HOST INFO] Información obtenida exitosamente`);
+    console.log(`   IP final: ${hostInfo.ip}`);
+    if (hostInfo.original_hostname) {
+      console.log(`   Hostname original: ${hostInfo.original_hostname}`);
+    }
+    console.log(
+      `   Puertos encontrados: ${hostInfo.summary?.open_ports_count || "N/A"}`
+    );
 
     res.json({
       data: hostInfo,
     });
   } catch (error) {
+    console.log(`❌ [HOST INFO] Error procesando solicitud:`);
+    console.log(`   Target: ${req.params.ip}`);
+    console.log(`   Error: ${error.message}`);
     next(error);
   }
 };

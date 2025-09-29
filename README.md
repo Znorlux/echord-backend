@@ -167,17 +167,21 @@ curl "http://localhost:4000/api/v1/shodan/search?q=apache&page=1&size=5"
 #### Información de Host
 
 ```http
-GET /api/v1/shodan/host/:ip
+GET /api/v1/shodan/host/:target
 ```
 
 **Parámetros:**
 
-- `ip` (obligatorio): Dirección IP válida (IPv4/IPv6) o hostname (ej: scanme.nmap.org)
+- `target` (obligatorio): Dirección IP válida (IPv4/IPv6) o dominio (ej: scanme.nmap.org)
 
-**Ejemplo:**
+**Ejemplos:**
 
 ```bash
+# Con IP directa
 curl "http://localhost:4000/api/v1/shodan/host/8.8.8.8"
+
+# Con dominio (se resuelve automáticamente)
+curl "http://localhost:4000/api/v1/shodan/host/scanme.nmap.org"
 ```
 
 **Respuesta:**
@@ -190,6 +194,7 @@ curl "http://localhost:4000/api/v1/shodan/host/8.8.8.8"
     "isp": "Google LLC",
     "hostnames": ["dns.google"],
     "domains": ["google.com"],
+    "original_hostname": "scanme.nmap.org",
     "geo": {
       "country": "United States",
       "city": "Mountain View",
@@ -267,12 +272,12 @@ curl "http://localhost:4000/api/v1/shodan/host/8.8.8.8"
 
 **Campos de la respuesta:**
 
-- `ip`: Dirección IP del host
+- `ip`: Dirección IP del host (resuelta si se envió un dominio)
 - `org`: Organización propietaria
 - `isp`: Proveedor de servicios de internet
-- `asn`: Número de sistema autónomo
 - `hostnames`: Lista de nombres de host asociados
 - `domains`: Lista de dominios asociados
+- `original_hostname`: Dominio original (solo aparece si se envió un dominio)
 - `geo`: Información geográfica (país, ciudad, coordenadas)
 - `last_update`: Última actualización en Shodan
 - `summary`: Resumen con información clave
@@ -603,8 +608,9 @@ model ShodanHostCache {
 
 ### Configuración del caché:
 
-- **Búsquedas** (`/search`): Expiran en **6 horas**
-- **Hosts** (`/host/:ip`): Expiran en **24 horas**
+- **Búsquedas** (`/search`): Expiran en **96 horas** (4 días)
+- **Hosts** (`/host/:ip`): Expiran en **168 horas** (7 días)
+- **DNS** (resoluciones): Expiran en **720 horas** (30 días)
 
 ### Flujo de funcionamiento:
 
@@ -615,11 +621,23 @@ model ShodanHostCache {
 ### Logs de caché en consola:
 
 ```bash
+# Búsqueda desde caché
 🔍 [CACHE] Buscando en caché: query="apache", page=1
 ✅ [CACHE] Encontrado en caché - creado: 2025-09-28T10:15:00.000Z
 🎯 [SHODAN] Usando resultados desde caché
-   Query: "apache", Página: 1
-   Resultados: 100, Total: 15847392
+
+# Resolución DNS desde caché
+🔍 [CACHE] Buscando DNS en caché: hostname="scanme.nmap.org"
+✅ [CACHE] DNS encontrado en caché - actualizado: 2025-09-28T10:15:00.000Z
+   scanme.nmap.org -> 45.33.32.156
+
+# Host con dominio
+🔍 [HOST INFO] Solicitud recibida:
+   Target: scanme.nmap.org
+   Tipo: Dominio
+🌐 [SHODAN] Detectado dominio: scanme.nmap.org
+🎯 [SHODAN DNS] Usando resolución desde caché
+   scanme.nmap.org -> 45.33.32.156
 ```
 
 ## 🐛 Desarrollo y Debug

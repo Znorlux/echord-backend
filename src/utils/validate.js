@@ -41,6 +41,15 @@ const isValidIPOrHostname = (target) => {
 };
 
 /**
+ * Detecta si una cadena es un dominio (hostname que no es IP)
+ * @param {string} input - Input a evaluar
+ * @returns {boolean} - true si es un dominio válido
+ */
+const isDomain = (input) => {
+  return !isValidIP(input) && isValidHostname(input);
+};
+
+/**
  * Valida si una cadena no está vacía
  * @param {string} str - Cadena a validar
  * @returns {boolean} - true si no está vacía
@@ -122,6 +131,7 @@ module.exports = {
   isValidIP,
   isValidHostname,
   isValidIPOrHostname,
+  isDomain,
   isNotEmpty,
   isStringArray,
   createValidationError,

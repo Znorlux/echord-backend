@@ -112,6 +112,88 @@ const searchHosts = async (query, page = 1) => {
  * @param {number} port - Número de puerto
  * @returns {string} - Categoría del puerto
  */
+/**
+ * Resuelve un hostname a IP usando la API de Shodan DNS (con caché)
+ * @param {string} hostname - Hostname a resolver
+ * @returns {Promise<string>} - IP resuelta
+ */
+const resolveDNS = async (hostname) => {
+  try {
+    // 1. Intentar obtener del caché primero
+    const cachedIP = await cacheService.getCachedDNS(hostname);
+    if (cachedIP) {
+      console.log(`🎯 [SHODAN DNS] Usando resolución desde caché`);
+      console.log(`   ${hostname} -> ${cachedIP}`);
+      return cachedIP;
+    }
+
+    // 2. Si no está en caché, hacer petición a Shodan DNS API
+    console.log(`🌐 [SHODAN DNS] Resolviendo hostname: ${hostname}`);
+
+    const response = await axios.get(`https://api.shodan.io/dns/resolve`, {
+      params: {
+        key: SHODAN_API_KEY,
+        hostnames: hostname,
+      },
+      timeout: 10000, // 10 segundos timeout
+    });
+
+    const result = response.data;
+
+    if (!result[hostname]) {
+      throw new Error(`No se pudo resolver el hostname: ${hostname}`);
+    }
+
+    const resolvedIP = result[hostname];
+    console.log(
+      `🎯 [SHODAN DNS] Hostname resuelto: ${hostname} -> ${resolvedIP}`
+    );
+
+    // 3. Guardar en caché para futuras consultas
+    await cacheService.cacheDNS(hostname, resolvedIP);
+
+    return resolvedIP;
+  } catch (error) {
+    console.log(`💥 [SHODAN DNS] Error resolviendo hostname:`);
+    console.log(`   Hostname: "${hostname}"`);
+
+    if (error.response) {
+      console.log(`   Status HTTP: ${error.response.status}`);
+      console.log(
+        `   Error Shodan: ${error.response.data?.error || "Sin detalles"}`
+      );
+
+      if (error.response.status === 401) {
+        throw new Error(
+          "API Key de Shodan inválida o expirada. Verifica tu SHODAN_API_KEY en el archivo .env"
+        );
+      }
+      if (error.response.status === 403) {
+        throw new Error(
+          "Acceso denegado. Verifica los permisos de tu API Key de Shodan"
+        );
+      }
+      throw new Error(
+        `Error de Shodan DNS API (${error.response.status}): ${
+          error.response.data?.error || error.message
+        }`
+      );
+    } else if (error.code === "ECONNABORTED") {
+      console.log(`   Tipo: Timeout (10s)`);
+      throw new Error("Timeout en la solicitud a Shodan DNS API");
+    } else {
+      console.log(`   Tipo: Error de conexión`);
+      console.log(`   Detalle: ${error.message}`);
+      throw new Error(`Error al conectar con Shodan DNS API: ${error.message}`);
+    }
+  }
+};
+
+/**
+ * Categoriza puertos en buckets para la UI
+ * @param {number} port - Número de puerto
+ * @returns {string} - Categoría del puerto
+ */
 const categorizePort = (port) => {
   const portCategories = {
     web: [
@@ -137,24 +219,44 @@ const categorizePort = (port) => {
 };
 
 /**
- * Obtiene información detallada de un host (con caché)
- * @param {string} ip - Dirección IP del host
+ * Obtiene información detallada de un host (con caché y resolución DNS)
+ * @param {string} target - Dirección IP del host o hostname
  * @returns {Promise<object>} - Información del host
  */
-const getHostInfo = async (ip) => {
+const getHostInfo = async (target) => {
+  const { isDomain } = require("../utils/validate");
+
   try {
-    // 1. Intentar obtener del caché primero
+    let ip = target;
+    let originalHostname = null;
+
+    // 1. Si es un dominio, resolverlo primero
+    if (isDomain(target)) {
+      console.log(`🌐 [SHODAN] Detectado dominio: ${target}`);
+      originalHostname = target;
+      ip = await resolveDNS(target);
+      console.log(`🎯 [SHODAN] Dominio resuelto: ${target} -> ${ip}`);
+    } else {
+      console.log(`🌐 [SHODAN] Usando IP directamente: ${target}`);
+    }
+
+    // 2. Intentar obtener del caché primero (usando la IP resuelta)
     const cachedHost = await cacheService.getCachedHost(ip);
     if (cachedHost) {
       console.log(`🎯 [SHODAN] Usando información de host desde caché`);
       console.log(`   IP: ${ip}`);
+      if (originalHostname) {
+        console.log(`   Hostname original: ${originalHostname}`);
+        // Agregar el hostname original a la respuesta del caché
+        cachedHost.original_hostname = originalHostname;
+      }
       console.log(
         `   Puertos: ${cachedHost.summary?.open_ports_count || "N/A"}`
       );
       return cachedHost;
     }
 
-    // 2. Si no está en caché, hacer petición a Shodan API
+    // 3. Si no está en caché, hacer petición a Shodan API
     console.log(`🌐 [SHODAN API] Obteniendo información de host desde API...`);
     console.log(`   URL: ${SHODAN_BASE_URL}/host/${ip}`);
 
@@ -309,6 +411,7 @@ const getHostInfo = async (ip) => {
       isp: data.isp || "No disponible",
       hostnames: data.hostnames || [],
       domains: data.domains || [],
+      ...(originalHostname && { original_hostname: originalHostname }), // Agregar hostname original si se resolvió
       geo: {
         country: data.country_name || "No disponible",
         city: data.city || "No disponible",
@@ -372,4 +475,5 @@ const getHostInfo = async (ip) => {
 module.exports = {
   searchHosts,
   getHostInfo,
+  resolveDNS,
 };

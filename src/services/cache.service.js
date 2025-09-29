@@ -6,6 +6,8 @@ const CACHE_CONFIG = {
   SEARCH_EXPIRY_HOURS: 96,
   // Caché de hosts expira en 168 horas - 7 dias (la información de host puede cambiar)
   HOST_EXPIRY_HOURS: 168,
+  // Caché de DNS expira en 720 horas - 30 dias (las resoluciones DNS son muy estables)
+  DNS_EXPIRY_HOURS: 720,
 };
 
 /**
@@ -166,6 +168,76 @@ const cacheHost = async (ip, data) => {
 };
 
 /**
+ * Obtiene una resolución DNS del caché si existe y no ha expirado
+ * @param {string} hostname - Hostname a resolver
+ * @returns {Promise<string|null>} - IP resuelta o null
+ */
+const getCachedDNS = async (hostname) => {
+  try {
+    console.log(`🔍 [CACHE] Buscando DNS en caché: hostname="${hostname}"`);
+
+    const cached = await prisma.shodanDNSCache.findUnique({
+      where: { hostname },
+    });
+
+    if (!cached) {
+      console.log(`❌ [CACHE] DNS no encontrado en caché`);
+      return null;
+    }
+
+    // Verificar si ha expirado
+    if (new Date() > cached.expiresAt) {
+      console.log(`⏰ [CACHE] Caché de DNS expirado, eliminando...`);
+      await prisma.shodanDNSCache.delete({
+        where: { hostname },
+      });
+      return null;
+    }
+
+    console.log(
+      `✅ [CACHE] DNS encontrado en caché - actualizado: ${cached.updatedAt}`
+    );
+    console.log(`   ${hostname} -> ${cached.ip}`);
+    return cached.ip;
+  } catch (error) {
+    console.error(`💥 [CACHE] Error obteniendo DNS cacheado:`, error);
+    return null;
+  }
+};
+
+/**
+ * Guarda una resolución DNS en el caché
+ * @param {string} hostname - Hostname resuelto
+ * @param {string} ip - IP resuelta
+ */
+const cacheDNS = async (hostname, ip) => {
+  try {
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + CACHE_CONFIG.DNS_EXPIRY_HOURS);
+
+    console.log(`💾 [CACHE] Guardando DNS en caché: ${hostname} -> ${ip}`);
+    console.log(`💾 [CACHE] Expira: ${expiresAt.toISOString()}`);
+
+    await prisma.shodanDNSCache.upsert({
+      where: { hostname },
+      create: {
+        hostname,
+        ip,
+        expiresAt,
+      },
+      update: {
+        ip,
+        expiresAt,
+      },
+    });
+
+    console.log(`✅ [CACHE] DNS guardado en caché`);
+  } catch (error) {
+    console.error(`💥 [CACHE] Error guardando DNS:`, error);
+  }
+};
+
+/**
  * Limpia cachés expirados (para ejecutar periódicamente)
  */
 const cleanExpiredCache = async () => {
@@ -192,9 +264,19 @@ const cleanExpiredCache = async () => {
       },
     });
 
+    // Limpiar DNS expirados
+    const expiredDNS = await prisma.shodanDNSCache.deleteMany({
+      where: {
+        expiresAt: {
+          lt: now,
+        },
+      },
+    });
+
     console.log(`🧹 [CACHE] Limpieza completada:`);
     console.log(`   Búsquedas eliminadas: ${expiredSearches.count}`);
     console.log(`   Hosts eliminados: ${expiredHosts.count}`);
+    console.log(`   DNS eliminados: ${expiredDNS.count}`);
   } catch (error) {
     console.error(`💥 [CACHE] Error limpiando caché:`, error);
   }
@@ -207,12 +289,16 @@ const getCacheStats = async () => {
   try {
     const searchCount = await prisma.shodanSearchCache.count();
     const hostCount = await prisma.shodanHostCache.count();
+    const dnsCount = await prisma.shodanDNSCache.count();
 
     const now = new Date();
     const expiredSearchCount = await prisma.shodanSearchCache.count({
       where: { expiresAt: { lt: now } },
     });
     const expiredHostCount = await prisma.shodanHostCache.count({
+      where: { expiresAt: { lt: now } },
+    });
+    const expiredDNSCount = await prisma.shodanDNSCache.count({
       where: { expiresAt: { lt: now } },
     });
 
@@ -227,6 +313,11 @@ const getCacheStats = async () => {
         expired: expiredHostCount,
         active: hostCount - expiredHostCount,
       },
+      dns: {
+        total: dnsCount,
+        expired: expiredDNSCount,
+        active: dnsCount - expiredDNSCount,
+      },
     };
   } catch (error) {
     console.error(`💥 [CACHE] Error obteniendo estadísticas:`, error);
@@ -239,6 +330,8 @@ module.exports = {
   cacheSearch,
   getCachedHost,
   cacheHost,
+  getCachedDNS,
+  cacheDNS,
   cleanExpiredCache,
   getCacheStats,
   CACHE_CONFIG,
