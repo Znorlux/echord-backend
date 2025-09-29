@@ -1,6 +1,6 @@
 # Echord Backend
 
-Backend mínimo y funcional para la aplicación Echord (frontend en Flutter). Proporciona integración con la API de Shodan para búsqueda de hosts y gestión de favoritos con persistencia en PostgreSQL.
+Backend mínimo y funcional para la aplicación Echord (frontend en Flutter). Proporciona integración con la API de Shodan para búsqueda de hosts y gestión de favoritos con persistencia en PostgreSQL (se usó Neon para pruebas).
 
 ## 🚀 Características
 
