@@ -65,7 +65,7 @@ const errorHandler = (err, req, res, next) => {
     message:
       process.env.NODE_ENV === "development"
         ? err.message
-        : "Ha ocurrido un error inesperado. Contacta al administrador.",
+        : "Ha ocurrido un error inesperado. Es posible que el servidor se haya apagado/reiniciado.",
   });
 };
 
